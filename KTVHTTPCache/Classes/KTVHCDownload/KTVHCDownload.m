@@ -27,7 +27,7 @@ NSString * const KTVHCContentTypeApplicationMPEG4       = @"application/mp4";
 NSString * const KTVHCContentTypeApplicationOctetStream = @"application/octet-stream";
 NSString * const KTVHCContentTypeBinaryOctetStream      = @"binary/octet-stream";
 
-static const NSInteger KTVHCDownloadMaxRetryCount = 30;
+static const NSInteger KTVHCDownloadMaxRetryCount = 15;
 static const NSTimeInterval KTVHCDownloadRetryInterval = 1.0;
 
 @interface KTVHCDownload () <NSURLSessionDataDelegate, NSLocking>
@@ -183,7 +183,7 @@ static const NSTimeInterval KTVHCDownloadRetryInterval = 1.0;
     NSHTTPURLResponse *HTTPURLResponse = nil;
     if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
         HTTPURLResponse = (NSHTTPURLResponse *)response;
-        if (HTTPURLResponse.statusCode == 404) {
+        if (HTTPURLResponse.statusCode >= 400) {
             NSString *urlKey = task.currentRequest.URL.absoluteString;
             NSInteger currentRetry = [self.retryCountDictionary[urlKey] integerValue];
             if (currentRetry < KTVHCDownloadMaxRetryCount) {
@@ -193,7 +193,7 @@ static const NSTimeInterval KTVHCDownloadRetryInterval = 1.0;
                 [self.requestDictionary removeObjectForKey:task];
                 [self.errorDictionary removeObjectForKey:task];
                 self.retryCountDictionary[urlKey] = @(currentRetry + 1);
-                KTVHCLogDownload(@"%p, 404 retry %ld/%ld for %@", self, (long)(currentRetry + 1), (long)KTVHCDownloadMaxRetryCount, urlKey);
+                KTVHCLogDownload(@"%p, HTTP %ld retry %ld/%ld for %@", self, (long)HTTPURLResponse.statusCode, (long)(currentRetry + 1), (long)KTVHCDownloadMaxRetryCount, urlKey);
                 completionHandler(NSURLSessionResponseCancel);
                 [self unlock];
                 dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(KTVHCDownloadRetryInterval * NSEC_PER_SEC)),
@@ -207,10 +207,6 @@ static const NSTimeInterval KTVHCDownloadRetryInterval = 1.0;
                                                        request:task.currentRequest
                                                       response:task.response];
             }
-        } else if (HTTPURLResponse.statusCode > 400) {
-            error = [KTVHCError errorForResponseStatusCode:task.currentRequest.URL
-                                                   request:task.currentRequest
-                                                  response:task.response];
         } else {
             dataRequest = [self.requestDictionary objectForKey:task];
             dataResponse = [[KTVHCDataResponse alloc] initWithURL:dataRequest.URL headers:HTTPURLResponse.allHeaderFields];
