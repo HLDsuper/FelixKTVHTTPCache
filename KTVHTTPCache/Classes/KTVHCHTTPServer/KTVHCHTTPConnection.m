@@ -80,7 +80,8 @@
     }
     KTVHCLogHTTPConnection(@"%p, Accept request\nURL : %@", self, URL);
     KTVHCDataRequest *dataRequest = [[KTVHCDataRequest alloc] initWithURL:URL headers:request.allHeaderFields];
-    if ([URL.absoluteString containsString:@".m3u"]) {
+    NSString *ext = URL.pathExtension.lowercaseString;
+    if ([ext isEqualToString:@"m3u8"] || [ext isEqualToString:@"m3u"]) {
         return [[KTVHCHTTPHLSResponse alloc] initWithConnection:self dataRequest:dataRequest];
     }
     return [[KTVHCHTTPResponse alloc] initWithConnection:self dataRequest:dataRequest];
