@@ -16,7 +16,7 @@
 
 @property (nonatomic, copy, readonly) NSURL *URL;
 @property (nonatomic, copy, readonly) NSDictionary *headers;
-@property (nonatomic, copy, readonly) NSString *contentType;
+@property (nonatomic, copy) NSString *contentType;
 @property (nonatomic, readonly) long long contentLength;
 @property (nonatomic, readonly) long long totalLength;
 

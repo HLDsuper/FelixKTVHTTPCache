@@ -210,6 +210,12 @@ static const NSTimeInterval KTVHCDownloadRetryInterval = 1.0;
         } else {
             dataRequest = [self.requestDictionary objectForKey:task];
             dataResponse = [[KTVHCDataResponse alloc] initWithURL:dataRequest.URL headers:HTTPURLResponse.allHeaderFields];
+            // 切片文件名含 .m3u8. 但后端错误返回了 application/x-mpegURL，修正为 video/mp2t
+            if ([dataRequest.URL.absoluteString containsString:@".m3u8."] &&
+                [dataResponse.contentType.lowercaseString containsString:@"mpegurl"]) {
+                dataResponse.contentType = @"video/mp2t";
+                KTVHCLogDownload(@"%p, Fix contentType for segment: %@", self, dataRequest.URL);
+            }
         }
     } else {
         error = [KTVHCError errorForResponseClass:task.currentRequest.URL
