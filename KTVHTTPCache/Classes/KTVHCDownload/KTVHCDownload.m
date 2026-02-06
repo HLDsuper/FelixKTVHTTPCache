@@ -27,6 +27,9 @@ NSString * const KTVHCContentTypeApplicationMPEG4       = @"application/mp4";
 NSString * const KTVHCContentTypeApplicationOctetStream = @"application/octet-stream";
 NSString * const KTVHCContentTypeBinaryOctetStream      = @"binary/octet-stream";
 
+static const NSInteger KTVHCDownloadMaxRetryCount = 30;
+static const NSTimeInterval KTVHCDownloadRetryInterval = 1.0;
+
 @interface KTVHCDownload () <NSURLSessionDataDelegate, NSLocking>
 
 @property (nonatomic, strong) NSLock *coreLock;
@@ -36,6 +39,7 @@ NSString * const KTVHCContentTypeBinaryOctetStream      = @"binary/octet-stream"
 @property (nonatomic, strong) NSMutableDictionary<NSURLSessionTask *, NSError *> *errorDictionary;
 @property (nonatomic, strong) NSMutableDictionary<NSURLSessionTask *, KTVHCDataRequest *> *requestDictionary;
 @property (nonatomic, strong) NSMutableDictionary<NSURLSessionTask *, id<KTVHCDownloadDelegate>> *delegateDictionary;
+@property (nonatomic, strong) NSMutableDictionary<NSString *, NSNumber *> *retryCountDictionary;
 #if KTVHC_UIKIT
 @property (nonatomic) UIBackgroundTaskIdentifier backgroundTask;
 #endif
@@ -63,6 +67,7 @@ NSString * const KTVHCContentTypeBinaryOctetStream      = @"binary/octet-stream"
         self.errorDictionary = [NSMutableDictionary dictionary];
         self.requestDictionary = [NSMutableDictionary dictionary];
         self.delegateDictionary = [NSMutableDictionary dictionary];
+        self.retryCountDictionary = [NSMutableDictionary dictionary];
         self.sessionDelegateQueue = [[NSOperationQueue alloc] init];
         self.sessionDelegateQueue.qualityOfService = NSQualityOfServiceUserInteractive;
         self.sessionConfiguration = [NSURLSessionConfiguration defaultSessionConfiguration];
@@ -178,7 +183,31 @@ NSString * const KTVHCContentTypeBinaryOctetStream      = @"binary/octet-stream"
     NSHTTPURLResponse *HTTPURLResponse = nil;
     if ([response isKindOfClass:[NSHTTPURLResponse class]]) {
         HTTPURLResponse = (NSHTTPURLResponse *)response;
-        if (HTTPURLResponse.statusCode > 400) {
+        if (HTTPURLResponse.statusCode == 404) {
+            NSString *urlKey = task.currentRequest.URL.absoluteString;
+            NSInteger currentRetry = [self.retryCountDictionary[urlKey] integerValue];
+            if (currentRetry < KTVHCDownloadMaxRetryCount) {
+                KTVHCDataRequest *retryRequest = [self.requestDictionary objectForKey:task];
+                id<KTVHCDownloadDelegate> retryDelegate = [self.delegateDictionary objectForKey:task];
+                [self.delegateDictionary removeObjectForKey:task];
+                [self.requestDictionary removeObjectForKey:task];
+                [self.errorDictionary removeObjectForKey:task];
+                self.retryCountDictionary[urlKey] = @(currentRetry + 1);
+                KTVHCLogDownload(@"%p, 404 retry %ld/%ld for %@", self, (long)(currentRetry + 1), (long)KTVHCDownloadMaxRetryCount, urlKey);
+                completionHandler(NSURLSessionResponseCancel);
+                [self unlock];
+                dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(KTVHCDownloadRetryInterval * NSEC_PER_SEC)),
+                               dispatch_get_global_queue(DISPATCH_QUEUE_PRIORITY_DEFAULT, 0), ^{
+                    [self downloadWithRequest:retryRequest delegate:retryDelegate];
+                });
+                return;
+            } else {
+                [self.retryCountDictionary removeObjectForKey:urlKey];
+                error = [KTVHCError errorForResponseStatusCode:task.currentRequest.URL
+                                                       request:task.currentRequest
+                                                      response:task.response];
+            }
+        } else if (HTTPURLResponse.statusCode > 400) {
             error = [KTVHCError errorForResponseStatusCode:task.currentRequest.URL
                                                    request:task.currentRequest
                                                   response:task.response];
@@ -240,6 +269,8 @@ NSString * const KTVHCContentTypeBinaryOctetStream      = @"binary/octet-stream"
         [self.errorDictionary setObject:error forKey:task];
         completionHandler(NSURLSessionResponseCancel);
     } else {
+        NSString *urlKey = task.currentRequest.URL.absoluteString;
+        [self.retryCountDictionary removeObjectForKey:urlKey];
         KTVHCLogDownload(@"%p, Receive response\nrequest : %@\nresponse : %@\nHTTPResponse : %@", self, dataRequest, dataResponse, HTTPURLResponse);
         id<KTVHCDownloadDelegate> delegate = [self.delegateDictionary objectForKey:task];
         [delegate ktv_download:self didReceiveResponse:dataResponse];
